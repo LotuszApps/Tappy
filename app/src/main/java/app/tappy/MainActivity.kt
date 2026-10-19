@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -201,6 +202,7 @@ class MainActivity : ComponentActivity() {
         var apps by remember { mutableStateOf<List<AppEntry>?>(null) }
         var query by remember { mutableStateOf("") }
         var confirmEmergency by remember { mutableStateOf(false) }
+        var confirmLockNow by remember { mutableStateOf(false) }
 
         LaunchedEffect(Unit) { apps = withContext(Dispatchers.IO) { loadApps() } }
 
@@ -209,7 +211,7 @@ class MainActivity : ComponentActivity() {
                 Modifier.fillMaxSize().systemBarsPadding(),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                item { StatusCard(state) }
+                item { StatusCard(state, onLockNow = { confirmLockNow = true }) }
                 item { SetupCard(state) }
                 item { AutoUnlockCard(state) }
 
@@ -285,6 +287,30 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        if (confirmLockNow) {
+            val until = if (state.autoUnlockEnabled) {
+                " It ends when you tap your tag, or by itself at " +
+                    BlockController.formatUnlockTime(
+                        this,
+                        AutoUnlock.nextOccurrence(System.currentTimeMillis(), state.autoUnlockMinuteOfDay),
+                    ) + "."
+            } else {
+                " Only your tag (or an emergency unlock) can end it."
+            }
+            AlertDialog(
+                onDismissRequest = { confirmLockNow = false },
+                title = { Text("Lock now?") },
+                text = { Text("This blocks ${state.blockedPackages.size} apps right away, without your tag.$until") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmLockNow = false
+                        toast(BlockController.describe(this, BlockController.lockNow(this)))
+                    }) { Text("Lock") }
+                },
+                dismissButton = { TextButton(onClick = { confirmLockNow = false }) { Text("Cancel") } },
+            )
+        }
+
         if (confirmEmergency) {
             AlertDialog(
                 onDismissRequest = { confirmEmergency = false },
@@ -311,7 +337,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun StatusCard(state: TappyStore.State) {
+    private fun StatusCard(state: TappyStore.State, onLockNow: () -> Unit) {
         val colors = if (state.blocking) {
             CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
         } else {
@@ -337,6 +363,14 @@ class MainActivity : ComponentActivity() {
                     else -> "Tap your tag to block ${state.blockedPackages.size} apps."
                 }
                 Text(detail, style = MaterialTheme.typography.bodyMedium)
+                // Forgot to tap before leaving? Lock from here; unlocking still needs the tag.
+                if (!state.blocking && state.pairedTagId != null) {
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = onLockNow, enabled = state.blockedPackages.isNotEmpty()) {
+                        Icon(Icons.Filled.Lock, null, Modifier.padding(end = 8.dp))
+                        Text("Lock now")
+                    }
+                }
             }
         }
     }

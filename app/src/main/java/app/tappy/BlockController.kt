@@ -27,12 +27,24 @@ object BlockController {
                 release(context)
                 TagResult.RELEASED
             }
-            blockablePackages(context).isEmpty() -> TagResult.NO_APPS
-            !isProtectionReady(context) -> TagResult.SETUP_INCOMPLETE
-            else -> {
-                engage(context)
-                TagResult.ENGAGED
-            }
+            else -> tryEngage(context)
+        }
+    }
+
+    /** Starts a block from the in-app button, without the tag. Ending it still needs the tag (or auto-unlock). */
+    fun lockNow(context: Context): TagResult {
+        if (TappyStore.state.value.pairedTagId == null) return TagResult.NOT_PAIRED
+        checkAutoUnlock(context) // clears a block whose auto-unlock time already passed
+        if (TappyStore.state.value.blocking) return TagResult.ENGAGED
+        return tryEngage(context)
+    }
+
+    private fun tryEngage(context: Context): TagResult = when {
+        blockablePackages(context).isEmpty() -> TagResult.NO_APPS
+        !isProtectionReady(context) -> TagResult.SETUP_INCOMPLETE
+        else -> {
+            engage(context)
+            TagResult.ENGAGED
         }
     }
 
@@ -42,7 +54,7 @@ object BlockController {
         TagResult.NO_APPS -> "Pick some apps to block in Tappy first."
         TagResult.SETUP_INCOMPLETE -> "Finish setup in Tappy first (blocker service and uninstall protection)."
         TagResult.ENGAGED -> TappyStore.state.value.autoUnlockAt.let { at ->
-            if (at == 0L) "Blocked. Tap again to unlock." else "Blocked until ${formatUnlockTime(context, at)}. Tap again to unlock sooner."
+            if (at == 0L) "Blocked. Tap your tag to unlock." else "Blocked until ${formatUnlockTime(context, at)}. Tap your tag to unlock sooner."
         }
         TagResult.RELEASED -> "Unlocked. Your apps are back."
         TagResult.AUTO_RELEASED -> "Auto-unlock time passed. Your apps are back."
