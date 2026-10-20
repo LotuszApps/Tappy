@@ -1,0 +1,7 @@
+First release.
+
+- Block chosen apps with a tap of a paired NFC tag; tap again to unlock.
+- Uninstall and settings protection while blocking.
+- Daily auto-unlock time (default 10 PM).
+- Lock now button, three emergency unlocks.
+- Phone, Clock, Settings and the home screen can never be blocked.

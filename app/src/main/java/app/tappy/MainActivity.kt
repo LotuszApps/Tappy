@@ -81,6 +81,15 @@ private const val HELP_TEXT = """Ways out of a block, easiest first:
 
 In device-owner mode, safe mode is disabled and Tappy can't be uninstalled, so only 1–3 work. The last resort is a factory reset from recovery mode, which wipes the phone."""
 
+private const val ACCESSIBILITY_DISCLOSURE = """Tappy uses Android's accessibility service to block apps. With it, Tappy:
+
+• sees which app is on screen, so it can close the apps you chose while a block is running;
+• checks whether Settings or the app installer is showing Tappy, so Tappy can't be switched off or uninstalled mid-block.
+
+Tappy does not read, store or share what you type or what's on screen. It has no internet access, so nothing leaves your phone.
+
+On the next screen, find Tappy and turn it on."""
+
 class MainActivity : ComponentActivity() {
 
     private data class AppEntry(val packageName: String, val label: String, val icon: ImageBitmap)
@@ -96,6 +105,7 @@ class MainActivity : ComponentActivity() {
     private var nfcAdapter: NfcAdapter? = null
     private var setup by mutableStateOf(Setup())
     private var pairing by mutableStateOf(false)
+    private var showAccessibilityDisclosure by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -326,6 +336,24 @@ class MainActivity : ComponentActivity() {
             )
         }
 
+        if (showAccessibilityDisclosure) {
+            // Prominent disclosure: explain exactly what the service sees before the user turns it on.
+            AlertDialog(
+                onDismissRequest = { showAccessibilityDisclosure = false },
+                title = { Text("Before you turn this on") },
+                text = { Text(ACCESSIBILITY_DISCLOSURE) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showAccessibilityDisclosure = false
+                        openAccessibilitySettings()
+                    }) { Text("Agree & continue") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAccessibilityDisclosure = false }) { Text("Not now") }
+                },
+            )
+        }
+
         if (pairing) {
             AlertDialog(
                 onDismissRequest = { pairing = false },
@@ -405,7 +433,7 @@ class MainActivity : ComponentActivity() {
                     subtitle = if (s.accessibility) null else
                         "Turn on Tappy under Accessibility. If it's greyed out: App info → ⋮ → Allow restricted settings.",
                     action = if (s.accessibility) null else "Open",
-                ) { openAccessibilitySettings() }
+                ) { showAccessibilityDisclosure = true }
 
                 SetupRow(
                     ok = s.admin,

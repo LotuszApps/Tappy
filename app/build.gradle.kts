@@ -13,14 +13,36 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "1.0.0"
+    }
+
+    // Release signing comes from environment variables (set by the Release workflow from repo
+    // secrets). Without them the release APK is left unsigned, which is what F-Droid expects:
+    // it builds from source and signs with its own key.
+    val keystorePath = System.getenv("TAPPY_KEYSTORE")
+    if (keystorePath != null) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("TAPPY_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("TAPPY_KEY_ALIAS")
+                keyPassword = System.getenv("TAPPY_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            if (keystorePath != null) signingConfig = signingConfigs.getByName("release")
         }
+    }
+
+    dependenciesInfo {
+        // Google-encrypted dependency metadata can't be read by F-Droid; leave it out.
+        includeInApk = false
+        includeInBundle = false
     }
 
     compileOptions {

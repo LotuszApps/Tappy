@@ -19,7 +19,15 @@ be uninstalled or switched off.
 
 A block won't start until the blocker service and uninstall protection are both on.
 
-## Build & install
+## Install
+
+- **GitHub:** download the latest `tappy-vX.Y.Z.apk` from
+  [Releases](https://github.com/Kjblootens/Tappy/releases) and open it on your phone.
+- **F-Droid:** coming soon.
+
+The two are signed with different keys, so pick one and stick with it.
+
+## Build from source
 
 Requires Android 8.0+ (API 26) and a phone with NFC.
 
@@ -86,3 +94,12 @@ In device-owner mode only 1–3 work. The last resort is a factory reset.
   phone's clock, so rebooting *and* moving the clock forward would end a block early.
 - Tags are matched by UID, which is unique per tag but not cryptographically secure. It's a
   self-control tool, not a security product.
+
+## Privacy
+
+No internet permission, ads, analytics or accounts. See [PRIVACY.md](PRIVACY.md).
+
+## License
+
+[GPL-3.0](LICENSE). You're free to use, study, change and share Tappy; copies and modified
+versions must stay open source under the same licence.

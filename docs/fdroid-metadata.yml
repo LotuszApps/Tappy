@@ -1,0 +1,26 @@
+# Draft for F-Droid submission: copy to metadata/app.tappy.yml in a fork of
+# https://gitlab.com/fdroid/fdroiddata and open a merge request. See RELEASING.md.
+Categories:
+  - System
+License: GPL-3.0-only
+SourceCode: https://github.com/Kjblootens/Tappy
+IssueTracker: https://github.com/Kjblootens/Tappy/issues
+Changelog: https://github.com/Kjblootens/Tappy/releases
+
+AutoName: Tappy
+
+RepoType: git
+Repo: https://github.com/Kjblootens/Tappy.git
+
+Builds:
+  - versionName: 1.0.0
+    versionCode: 1
+    commit: v1.0.0
+    subdir: app
+    gradle:
+      - yes
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 1.0.0
+CurrentVersionCode: 1
