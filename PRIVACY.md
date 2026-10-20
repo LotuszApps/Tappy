@@ -17,4 +17,4 @@ Tappy collects no personal data. Nothing leaves your phone.
 - **Stored on the device only:** your list of blocked apps, the paired tag's serial number, your
   auto-unlock time and whether a block is active. Uninstalling Tappy deletes all of it.
 
-Questions: open an issue at https://github.com/Kjblootens/Tappy/issues.
+Questions: open an issue at https://github.com/LotuszApps/Tappy/issues.

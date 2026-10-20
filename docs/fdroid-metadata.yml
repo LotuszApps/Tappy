@@ -1,16 +1,16 @@
-# Draft for F-Droid submission: copy to metadata/io.github.lotusz.tappy.yml in a fork of
+# Draft for F-Droid submission: copy to metadata/io.github.lotuszapps.tappy.yml in a fork of
 # https://gitlab.com/fdroid/fdroiddata and open a merge request. See RELEASING.md.
 Categories:
   - System
 License: GPL-3.0-only
-SourceCode: https://github.com/Kjblootens/Tappy
-IssueTracker: https://github.com/Kjblootens/Tappy/issues
-Changelog: https://github.com/Kjblootens/Tappy/releases
+SourceCode: https://github.com/LotuszApps/Tappy
+IssueTracker: https://github.com/LotuszApps/Tappy/issues
+Changelog: https://github.com/LotuszApps/Tappy/releases
 
 AutoName: Tappy
 
 RepoType: git
-Repo: https://github.com/Kjblootens/Tappy.git
+Repo: https://github.com/LotuszApps/Tappy.git
 
 Builds:
   - versionName: 1.0.0

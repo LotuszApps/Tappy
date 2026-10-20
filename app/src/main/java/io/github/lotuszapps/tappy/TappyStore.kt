@@ -1,4 +1,4 @@
-package io.github.lotusz.tappy
+package io.github.lotuszapps.tappy
 
 import android.content.Context
 import android.content.SharedPreferences

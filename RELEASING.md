@@ -52,7 +52,7 @@ extra steps needed.
 Requirements: the GitHub repo is **public**, and a `v1.0.0` tag exists.
 
 1. Create a GitLab account and fork https://gitlab.com/fdroid/fdroiddata.
-2. Copy `docs/fdroid-metadata.yml` to `metadata/io.github.lotusz.tappy.yml` in your fork.
+2. Copy `docs/fdroid-metadata.yml` to `metadata/io.github.lotuszapps.tappy.yml` in your fork.
 3. Open a merge request. F-Droid's bot test-builds it; maintainers review it. Answer any
    questions in the merge request. Expect a few weeks.
 

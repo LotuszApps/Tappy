@@ -1,4 +1,4 @@
-package io.github.lotusz.tappy
+package io.github.lotuszapps.tappy
 
 import android.app.admin.DevicePolicyManager
 import android.content.Context

@@ -22,7 +22,7 @@ A block won't start until the blocker service and uninstall protection are both 
 ## Install
 
 - **GitHub:** download the latest `tappy-vX.Y.Z.apk` from
-  [Releases](https://github.com/Kjblootens/Tappy/releases) and open it on your phone.
+  [Releases](https://github.com/LotuszApps/Tappy/releases) and open it on your phone.
 - **F-Droid:** coming soon.
 
 The two are signed with different keys, so pick one and stick with it.
@@ -64,7 +64,7 @@ Android only allows setting a device owner when **no accounts** are on the devic
 need to temporarily remove your Google (and other) accounts under *Settings → Accounts*, then:
 
 ```sh
-adb shell dpm set-device-owner io.github.lotusz.tappy/.TappyAdminReceiver
+adb shell dpm set-device-owner io.github.lotuszapps.tappy/.TappyAdminReceiver
 ```
 
 Re-add your accounts afterwards. To undo it, use **Remove owner** in Tappy (only available

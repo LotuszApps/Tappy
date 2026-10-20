@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "io.github.lotusz.tappy"
+    namespace = "io.github.lotuszapps.tappy"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "io.github.lotusz.tappy"
+        applicationId = "io.github.lotuszapps.tappy"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
