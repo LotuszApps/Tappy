@@ -1,4 +1,4 @@
-package app.tappy
+package io.github.lotusz.tappy
 
 import android.app.AlarmManager
 import android.app.PendingIntent

@@ -76,7 +76,7 @@
             android:excludeFromRecents="true"
             android:exported="false"
             android:launchMode="singleTask"
-            android:taskAffinity="app.tappy.blocked" />
+            android:taskAffinity="io.github.lotusz.tappy.blocked" />
 
         <service
             android:name=".BlockerService"

@@ -64,7 +64,7 @@ Android only allows setting a device owner when **no accounts** are on the devic
 need to temporarily remove your Google (and other) accounts under *Settings → Accounts*, then:
 
 ```sh
-adb shell dpm set-device-owner app.tappy/.TappyAdminReceiver
+adb shell dpm set-device-owner io.github.lotusz.tappy/.TappyAdminReceiver
 ```
 
 Re-add your accounts afterwards. To undo it, use **Remove owner** in Tappy (only available

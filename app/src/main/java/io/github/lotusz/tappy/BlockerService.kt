@@ -1,4 +1,4 @@
-package app.tappy
+package io.github.lotusz.tappy
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
