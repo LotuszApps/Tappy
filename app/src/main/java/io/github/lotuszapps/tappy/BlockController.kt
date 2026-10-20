@@ -89,6 +89,7 @@ object BlockController {
         applyOwnerPolicies(context, blocking = false)
         TappyStore.endBlock()
         AutoUnlock.schedule(context)
+        AttemptNotifier.clear(context)
     }
 
     fun emergencyRelease(context: Context): Boolean {
@@ -96,6 +97,7 @@ object BlockController {
         applyOwnerPolicies(context, blocking = false)
         val released = TappyStore.consumeEmergencyUnlock()
         AutoUnlock.schedule(context)
+        AttemptNotifier.clear(context)
         return released
     }
 

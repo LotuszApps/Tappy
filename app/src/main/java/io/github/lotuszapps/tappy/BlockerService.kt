@@ -87,6 +87,11 @@ class BlockerService : AccessibilityService() {
             Toast.makeText(this, BlockController.describe(this, BlockController.TagResult.AUTO_RELEASED), Toast.LENGTH_SHORT).show()
             return
         }
+        val attempts = if (reason == BlockedActivity.REASON_APP) {
+            TappyStore.recordAttempt(pkg).also { AttemptNotifier.show(this, pkg, it) }
+        } else {
+            0
+        }
         performGlobalAction(GLOBAL_ACTION_HOME)
         startActivity(
             Intent(this, BlockedActivity::class.java)
@@ -97,6 +102,7 @@ class BlockerService : AccessibilityService() {
                 )
                 .putExtra(BlockedActivity.EXTRA_REASON, reason)
                 .putExtra(BlockedActivity.EXTRA_PACKAGE, pkg)
+                .putExtra(BlockedActivity.EXTRA_ATTEMPTS, attempts)
         )
     }
 

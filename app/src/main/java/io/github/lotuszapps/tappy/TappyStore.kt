@@ -23,6 +23,8 @@ object TappyStore {
         val blockStartedBootCount: Int = -1,
         /** Wall-clock time the current block ends by itself, or 0 for never. Fixed when the block starts. */
         val autoUnlockAt: Long = 0L,
+        /** How often each blocked app was opened during the current block. */
+        val attempts: Map<String, Int> = emptyMap(),
     )
 
     const val EMERGENCY_UNLOCKS = 3
@@ -38,6 +40,7 @@ object TappyStore {
     private const val KEY_STARTED_ELAPSED = "block_started_elapsed"
     private const val KEY_STARTED_BOOT = "block_started_boot"
     private const val KEY_AUTO_AT = "auto_unlock_at"
+    private const val KEY_ATTEMPTS = "attempts"
 
     private lateinit var prefs: SharedPreferences
     private val _state = MutableStateFlow(State())
@@ -57,6 +60,10 @@ object TappyStore {
             blockStartedElapsed = prefs.getLong(KEY_STARTED_ELAPSED, 0L),
             blockStartedBootCount = prefs.getInt(KEY_STARTED_BOOT, -1),
             autoUnlockAt = prefs.getLong(KEY_AUTO_AT, 0L),
+            attempts = prefs.getStringSet(KEY_ATTEMPTS, emptySet())!!.mapNotNull { entry ->
+                val (pkg, count) = entry.split('\t').takeIf { it.size == 2 } ?: return@mapNotNull null
+                count.toIntOrNull()?.let { pkg to it }
+            }.toMap(),
         )
     }
 
@@ -75,6 +82,7 @@ object TappyStore {
             .putLong(KEY_STARTED_ELAPSED, next.blockStartedElapsed)
             .putInt(KEY_STARTED_BOOT, next.blockStartedBootCount)
             .putLong(KEY_AUTO_AT, next.autoUnlockAt)
+            .putStringSet(KEY_ATTEMPTS, next.attempts.map { (pkg, count) -> "$pkg\t$count" }.toSet())
             .commit()
         _state.value = next
     }
@@ -105,11 +113,29 @@ object TappyStore {
             blockStartedElapsed = startedElapsed,
             blockStartedBootCount = bootCount,
             autoUnlockAt = autoUnlockAt,
+            attempts = emptyMap(),
         )
     }
 
+    /** Counts one blocked open of [pkg] and returns its new total for this block. */
+    fun recordAttempt(pkg: String): Int {
+        var total = 0
+        update {
+            total = (it.attempts[pkg] ?: 0) + 1
+            it.copy(attempts = it.attempts + (pkg to total))
+        }
+        return total
+    }
+
     fun endBlock() = update {
-        it.copy(blocking = false, blockStartedAt = 0L, blockStartedElapsed = 0L, blockStartedBootCount = -1, autoUnlockAt = 0L)
+        it.copy(
+            blocking = false,
+            blockStartedAt = 0L,
+            blockStartedElapsed = 0L,
+            blockStartedBootCount = -1,
+            autoUnlockAt = 0L,
+            attempts = emptyMap(),
+        )
     }
 
     fun consumeEmergencyUnlock(): Boolean {

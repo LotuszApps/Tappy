@@ -12,6 +12,7 @@ be uninstalled or switched off.
 | **Accessibility service** (`BlockerService`) | Watches the foreground window. When a blocked app comes to the front it sends you home and shows a "blocked" screen. |
 | **Device admin** (`TappyAdminReceiver`) | An active device admin can't be uninstalled until it's deactivated. |
 | **Self-protection** | While blocking, any Settings / package-installer screen that mentions Tappy (app info, uninstall dialog, accessibility toggle, device-admin deactivation) is bounced back to home. So you can't turn off the service, deactivate the admin, force-stop or uninstall Tappy until you tap your tag. |
+| **Attempt counter** | Each time you open a blocked app, the block screen and a quiet notification show how many times you've tried that app since the block started. Counts reset when the block ends. |
 | **Lock now** | Once a tag is paired, a button on the main screen starts a block without the tag (after a confirmation), for when you forgot to tap before leaving. Ending the block still needs the tag (or auto-unlock / an emergency unlock). |
 | **Auto-unlock** | Every block ends by itself at a daily time (10 PM by default). The time is set in the app and can only be changed while not blocking. The deadline is fixed when the block starts: a block started at 11 PM runs until 10 PM the next day. The block ends the first time you use the phone after that time (plus a backstop alarm). Moving the phone's clock forward doesn't end it early. |
 | **Emergency unlock** | 3 one-time unlocks in case you lose the tag. They never recharge. |

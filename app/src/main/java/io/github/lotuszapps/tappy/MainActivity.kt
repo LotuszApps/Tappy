@@ -1,17 +1,20 @@
 package io.github.lotuszapps.tappy
 
+import android.Manifest
 import android.app.TimePickerDialog
 import android.app.admin.DevicePolicyManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.nfc.NfcAdapter
 import android.nfc.Tag
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.text.format.DateFormat
 import android.text.format.DateUtils
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.Image
@@ -111,6 +114,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
+        // For the blocked-attempt notifications; Android stops asking after the user declines twice.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+                .launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
         setContent { TappyTheme { Screen() } }
     }
 
@@ -383,7 +391,7 @@ class MainActivity : ComponentActivity() {
                 }
                 Spacer(Modifier.height(4.dp))
                 val detail = when {
-                    state.blocking -> "${state.blockedPackages.size} apps locked since " +
+                    state.blocking -> attemptsSummary(state) + "${state.blockedPackages.size} apps locked since " +
                         DateUtils.getRelativeTimeSpanString(state.blockStartedAt) + ". " +
                         (if (state.autoUnlockAt != 0L) "Unlocks by itself at ${BlockController.formatUnlockTime(this@MainActivity, state.autoUnlockAt)}, or " else "") +
                         "tap your tag to unlock."
@@ -401,6 +409,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun attemptsSummary(state: TappyStore.State): String {
+        val total = state.attempts.values.sum()
+        return if (total == 0) "" else "$total blocked ${if (total == 1) "attempt" else "attempts"} so far. "
     }
 
     @Composable

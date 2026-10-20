@@ -1,7 +1,6 @@
 package io.github.lotuszapps.tappy
 
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -45,19 +44,14 @@ class BlockedActivity : ComponentActivity() {
     private fun render() {
         val reason = intent.getStringExtra(EXTRA_REASON)
         val pkg = intent.getStringExtra(EXTRA_PACKAGE)
-        val label = pkg?.let {
-            try {
-                packageManager.getApplicationLabel(packageManager.getApplicationInfo(it, 0)).toString()
-            } catch (_: PackageManager.NameNotFoundException) {
-                it
-            }
-        } ?: "This app"
+        val label = pkg?.let { AttemptNotifier.labelOf(this, it) } ?: "This app"
+        val attempts = intent.getIntExtra(EXTRA_ATTEMPTS, 0)
 
         val (title, body) = if (reason == REASON_PROTECTED) {
             "Tappy is locked" to "Tappy's settings can't be changed and it can't be uninstalled while a block is active. Tap your tag to end the block first."
         } else {
             val at = TappyStore.state.value.autoUnlockAt
-            "$label is blocked" to "Tap your Tappy tag to unlock your apps." +
+            "$label is blocked" to AttemptNotifier.describe(attempts) + "\n\nTap your Tappy tag to unlock your apps." +
                 (if (at != 0L) " They'll also come back by themselves at ${BlockController.formatUnlockTime(this, at)}." else "")
         }
 
@@ -90,6 +84,7 @@ class BlockedActivity : ComponentActivity() {
     companion object {
         const val EXTRA_REASON = "reason"
         const val EXTRA_PACKAGE = "package"
+        const val EXTRA_ATTEMPTS = "attempts"
         const val REASON_APP = "app"
         const val REASON_PROTECTED = "protected"
     }
