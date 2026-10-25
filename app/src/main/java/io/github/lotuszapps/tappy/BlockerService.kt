@@ -12,7 +12,7 @@ import android.widget.Toast
 /**
  * Watches the foreground window. While a block is active it:
  *  - on a full day, sends you home and shows [BlockOverlay] when a blocked app comes to the front;
- *  - on a timed day, lets a blocked app open for a few minutes per opening, then sends you home;
+ *  - on a timed day, asks before letting a blocked app open for a few minutes, then sends you home;
  *  - sends you home from any Settings / package-installer screen that mentions Tappy, so the
  *    accessibility service, device admin and the app itself can't be turned off or removed.
  */
@@ -32,6 +32,9 @@ class BlockerService : AccessibilityService() {
     /** Timed-day sessions: package to the uptime-clock time its current opening ends. */
     private val sessionEnds = mutableMapOf<String, Long>()
     private var sessionsFor = -1L
+
+    /** Timed day: the app whose "open it for N minutes?" question is showing. */
+    private var confirmingPkg: String? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -58,6 +61,12 @@ class BlockerService : AccessibilityService() {
             if (pkg != foregroundPkg) {
                 foregroundPkg = pkg
                 pruneSessions()
+                // Left the app while its question was up (home, recents, shade): drop the question.
+                // Coming back asks again.
+                if (confirmingPkg != null && confirmingPkg != pkg) {
+                    confirmingPkg = null
+                    overlay.hide()
+                }
             }
             if (pkg == packageName) return
             BlockController.syncOwnerSuspension(this)
@@ -124,8 +133,9 @@ class BlockerService : AccessibilityService() {
     }
 
     /**
-     * Timed day: each opening of a blocked app gets a few minutes. Coming back to it while that
-     * time is still running continues the same opening; after it runs out you're sent home.
+     * Timed day: each opening of a blocked app first asks whether you really want it for a few
+     * minutes. Coming back to it while that time is still running continues the same opening;
+     * after it runs out you're sent home.
      */
     private fun timedOpen(pkg: String, state: TappyStore.State) {
         if (sessionsFor != state.blockStartedAt) {
@@ -138,17 +148,38 @@ class BlockerService : AccessibilityService() {
             if (now >= end) timeUp(pkg) // the timer is late (e.g. the phone was asleep)
             return
         }
+        if (confirmingPkg == pkg) return
+        // Just sent home (Not now / Time's up): ignore the app's last events while home takes over.
+        if (SystemClock.uptimeMillis() - lastBounceAt < 600) return
         if (endBlockIfAutoUnlockPassed()) return
 
         val minutes = state.timedMinutes
-        sessionEnds[pkg] = now + minutes * 60_000L
-        handler.postDelayed({ onSessionTimer(pkg) }, minutes * 60_000L)
+        val label = AttemptNotifier.labelOf(this, pkg)
         val opens = TappyStore.recordAttempt(pkg).also { AttemptNotifier.show(this, pkg, it) }
-        Toast.makeText(
-            this,
-            "${AttemptNotifier.labelOf(this, pkg)}: $minutes min. Opened $opens× since you locked.",
-            Toast.LENGTH_SHORT,
-        ).show()
+        confirmingPkg = pkg
+        overlay.show(
+            "Open $label?",
+            "Do you really want to open $label for $minutes ${if (minutes == 1) "minute" else "minutes"}?" +
+                "\n\nYou've tried $opens× since you locked.",
+            listOf(
+                "Not now" to {
+                    confirmingPkg = null
+                    lastBounceAt = SystemClock.uptimeMillis()
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                    Unit
+                },
+                "Open" to {
+                    confirmingPkg = null
+                    startSession(pkg, minutes)
+                },
+            ),
+        )
+    }
+
+    private fun startSession(pkg: String, minutes: Int) {
+        sessionEnds[pkg] = SystemClock.elapsedRealtime() + minutes * 60_000L
+        handler.postDelayed({ onSessionTimer(pkg) }, minutes * 60_000L)
+        Toast.makeText(this, "${AttemptNotifier.labelOf(this, pkg)}: $minutes min", Toast.LENGTH_SHORT).show()
     }
 
     private fun onSessionTimer(pkg: String) {

@@ -15,7 +15,8 @@ import android.widget.TextView
 /**
  * Full-screen message drawn by the accessibility service itself. Unlike an activity it can't
  * be refused by Android's background-start limits or covered by the home screen, so it shows
- * every time. Dismissed with OK, or by itself after a few seconds.
+ * every time. A plain message is dismissed with OK or by itself after a few seconds; a question
+ * (with [show]'s actions) stays until one of its buttons is tapped or the service hides it.
  */
 class BlockOverlay(private val service: AccessibilityService) {
 
@@ -23,7 +24,11 @@ class BlockOverlay(private val service: AccessibilityService) {
     private var view: View? = null
     private val autoHide = Runnable { hide() }
 
-    fun show(title: String, body: String) {
+    fun show(
+        title: String,
+        body: String,
+        actions: List<Pair<String, () -> Unit>> = emptyList(),
+    ) {
         hide()
         val root = LinearLayout(service).apply {
             orientation = LinearLayout.VERTICAL
@@ -52,10 +57,20 @@ class BlockOverlay(private val service: AccessibilityService) {
             LinearLayout.LayoutParams.WRAP_CONTENT,
             LinearLayout.LayoutParams.WRAP_CONTENT,
         ).apply { topMargin = dp(12); bottomMargin = dp(32) })
-        root.addView(Button(service).apply {
-            text = "OK"
-            setOnClickListener { hide() }
-        })
+        val buttons = LinearLayout(service).apply { orientation = LinearLayout.HORIZONTAL }
+        actions.ifEmpty { listOf("OK" to {}) }.forEach { (label, action) ->
+            buttons.addView(Button(service).apply {
+                text = label
+                setOnClickListener {
+                    hide()
+                    action()
+                }
+            }, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { marginStart = dp(8); marginEnd = dp(8) })
+        }
+        root.addView(buttons)
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -66,7 +81,8 @@ class BlockOverlay(private val service: AccessibilityService) {
         )
         windowManager.addView(root, params)
         view = root
-        root.postDelayed(autoHide, AUTO_HIDE_MS)
+        // A question must stay up: hiding it would reveal the app underneath.
+        if (actions.isEmpty()) root.postDelayed(autoHide, AUTO_HIDE_MS)
     }
 
     fun hide() {

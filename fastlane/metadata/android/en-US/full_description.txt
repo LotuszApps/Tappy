@@ -8,7 +8,7 @@
 <li>Choose exactly which apps to block. Phone, Clock, Settings and your home screen can never be blocked, so calls and alarms always come through.</li>
 <li>Can't be uninstalled or switched off while a block is running.</li>
 <li>Daily auto-unlock at a time you choose (10 PM by default), fixed when the block starts. Changing the phone's clock doesn't end it early.</li>
-<li>Timed days: pick weekdays where blocked apps can be opened for a few minutes at a time (5 by default) instead of not at all.</li>
+<li>Timed days: pick weekdays where blocked apps can be opened for a few minutes at a time (5 by default) after confirming you really want to, instead of not at all.</li>
 <li>See how many times you tried to open each blocked app during a block.</li>
 <li>"Lock now" button for when you forget to tap before leaving the house.</li>
 <li>Three one-time emergency unlocks in case you lose the tag.</li>
