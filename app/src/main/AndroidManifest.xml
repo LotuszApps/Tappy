@@ -72,13 +72,6 @@
                 android:resource="@xml/nfc_tech_filter" />
         </activity>
 
-        <activity
-            android:name=".BlockedActivity"
-            android:excludeFromRecents="true"
-            android:exported="false"
-            android:launchMode="singleTask"
-            android:taskAffinity="io.github.lotuszapps.tappy.blocked" />
-
         <service
             android:name=".BlockerService"
             android:exported="true"

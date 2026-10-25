@@ -7,10 +7,27 @@ import android.os.UserManager
 import android.text.format.DateFormat
 import android.text.format.DateUtils
 import android.util.Log
+import java.util.Calendar
 import java.util.Date
 
 /** Starts and ends blocks, and applies the extra device-owner policies when available. */
 object BlockController {
+
+    /** Full: blocked apps can't be opened. Timed: each opening lasts a few minutes. */
+    enum class Mode { FULL, TIMED }
+
+    /** Decided by today's weekday, so a block that runs past midnight follows the new day. */
+    fun currentMode(state: TappyStore.State = TappyStore.state.value): Mode =
+        if (Calendar.getInstance().get(Calendar.DAY_OF_WEEK) in state.timedDays) Mode.TIMED else Mode.FULL
+
+    /** The mode the device-owner app suspension was last applied for; null = not applied in this process. */
+    private var ownerPoliciesMode: Mode? = null
+
+    /** Device owner: re-apply app suspension when the day switches between full and timed. */
+    fun syncOwnerSuspension(context: Context) {
+        val state = TappyStore.state.value
+        if (state.blocking && currentMode(state) != ownerPoliciesMode) applyOwnerPolicies(context, blocking = true)
+    }
 
     enum class TagResult { NOT_PAIRED, WRONG_TAG, NO_APPS, SETUP_INCOMPLETE, ENGAGED, RELEASED, AUTO_RELEASED }
 
@@ -53,8 +70,14 @@ object BlockController {
         TagResult.WRONG_TAG -> "This isn't your Tappy tag."
         TagResult.NO_APPS -> "Pick some apps to block in Tappy first."
         TagResult.SETUP_INCOMPLETE -> "Finish setup in Tappy first (blocker service and uninstall protection)."
-        TagResult.ENGAGED -> TappyStore.state.value.autoUnlockAt.let { at ->
-            if (at == 0L) "Blocked. Tap your tag to unlock." else "Blocked until ${formatUnlockTime(context, at)}. Tap your tag to unlock sooner."
+        TagResult.ENGAGED -> TappyStore.state.value.let { s ->
+            val what = if (currentMode(s) == Mode.TIMED) {
+                "Timed lock: blocked apps open for ${s.timedMinutes} min at a time"
+            } else {
+                "Blocked"
+            }
+            if (s.autoUnlockAt == 0L) "$what. Tap your tag to unlock."
+            else "$what until ${formatUnlockTime(context, s.autoUnlockAt)}. Tap your tag to unlock sooner."
         }
         TagResult.RELEASED -> "Unlocked. Your apps are back."
         TagResult.AUTO_RELEASED -> "Auto-unlock time passed. Your apps are back."
@@ -117,14 +140,18 @@ object BlockController {
      * hard-block its own uninstall and disable safe mode (which would otherwise bypass it).
      */
     private fun applyOwnerPolicies(context: Context, blocking: Boolean) {
+        val mode = currentMode()
+        ownerPoliciesMode = if (blocking) mode else null
         if (!isDeviceOwner(context)) return
+        // On timed days the apps must stay openable; the blocker service enforces the time limit.
+        val suspend = blocking && mode == Mode.FULL
         val dpm = context.getSystemService(DevicePolicyManager::class.java)
         val admin = TappyAdminReceiver.component(context)
         // Unsuspend the whole selection on release, in case the protected set changed mid-block.
-        val packages = (if (blocking) blockablePackages(context) else TappyStore.state.value.blockedPackages).toTypedArray()
+        val packages = (if (suspend) blockablePackages(context) else TappyStore.state.value.blockedPackages).toTypedArray()
         try {
             dpm.setUninstallBlocked(admin, context.packageName, blocking)
-            val failed = dpm.setPackagesSuspended(admin, packages, blocking)
+            val failed = dpm.setPackagesSuspended(admin, packages, suspend)
             if (failed.isNotEmpty()) Log.w(TAG, "Could not (un)suspend: ${failed.joinToString()}")
             if (blocking) {
                 dpm.addUserRestriction(admin, UserManager.DISALLOW_SAFE_BOOT)

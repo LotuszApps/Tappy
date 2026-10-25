@@ -5,4 +5,5 @@ First release.
 - Daily auto-unlock time (default 10 PM).
 - Lock now button, three emergency unlocks.
 - Counts how often you try to open each blocked app during a block.
+- Timed days: on chosen weekdays, blocked apps open for a few minutes at a time instead of not at all.
 - Phone, Clock, Settings and the home screen can never be blocked.

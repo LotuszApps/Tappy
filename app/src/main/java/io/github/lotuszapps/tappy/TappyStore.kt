@@ -17,6 +17,10 @@ object TappyStore {
         /** Daily auto-unlock setting; only editable while not blocking. */
         val autoUnlockEnabled: Boolean = true,
         val autoUnlockMinuteOfDay: Int = DEFAULT_AUTO_UNLOCK_MINUTE,
+        /** Days (Calendar.DAY_OF_WEEK) on which a block is timed instead of full; only editable while not blocking. */
+        val timedDays: Set<Int> = emptySet(),
+        /** On timed days, how long each opening of a blocked app may last. */
+        val timedMinutes: Int = DEFAULT_TIMED_MINUTES,
         /** When the current block started, by wall clock, uptime clock and boot number. */
         val blockStartedAt: Long = 0L,
         val blockStartedElapsed: Long = 0L,
@@ -29,6 +33,7 @@ object TappyStore {
 
     const val EMERGENCY_UNLOCKS = 3
     const val DEFAULT_AUTO_UNLOCK_MINUTE = 22 * 60
+    const val DEFAULT_TIMED_MINUTES = 5
 
     private const val KEY_BLOCKING = "blocking"
     private const val KEY_PACKAGES = "blocked_packages"
@@ -41,6 +46,8 @@ object TappyStore {
     private const val KEY_STARTED_BOOT = "block_started_boot"
     private const val KEY_AUTO_AT = "auto_unlock_at"
     private const val KEY_ATTEMPTS = "attempts"
+    private const val KEY_TIMED_DAYS = "timed_days"
+    private const val KEY_TIMED_MINUTES = "timed_minutes"
 
     private lateinit var prefs: SharedPreferences
     private val _state = MutableStateFlow(State())
@@ -56,6 +63,8 @@ object TappyStore {
             emergencyUnlocksLeft = prefs.getInt(KEY_EMERGENCY, EMERGENCY_UNLOCKS),
             autoUnlockEnabled = prefs.getBoolean(KEY_AUTO_ENABLED, true),
             autoUnlockMinuteOfDay = prefs.getInt(KEY_AUTO_MINUTE, DEFAULT_AUTO_UNLOCK_MINUTE),
+            timedDays = prefs.getStringSet(KEY_TIMED_DAYS, emptySet())!!.mapNotNull { it.toIntOrNull() }.toSet(),
+            timedMinutes = prefs.getInt(KEY_TIMED_MINUTES, DEFAULT_TIMED_MINUTES),
             blockStartedAt = prefs.getLong(KEY_STARTED, 0L),
             blockStartedElapsed = prefs.getLong(KEY_STARTED_ELAPSED, 0L),
             blockStartedBootCount = prefs.getInt(KEY_STARTED_BOOT, -1),
@@ -78,6 +87,8 @@ object TappyStore {
             .putInt(KEY_EMERGENCY, next.emergencyUnlocksLeft)
             .putBoolean(KEY_AUTO_ENABLED, next.autoUnlockEnabled)
             .putInt(KEY_AUTO_MINUTE, next.autoUnlockMinuteOfDay)
+            .putStringSet(KEY_TIMED_DAYS, next.timedDays.map { it.toString() }.toSet())
+            .putInt(KEY_TIMED_MINUTES, next.timedMinutes)
             .putLong(KEY_STARTED, next.blockStartedAt)
             .putLong(KEY_STARTED_ELAPSED, next.blockStartedElapsed)
             .putInt(KEY_STARTED_BOOT, next.blockStartedBootCount)
@@ -103,6 +114,12 @@ object TappyStore {
     fun setAutoUnlock(enabled: Boolean, minuteOfDay: Int): Boolean {
         if (_state.value.blocking) return false
         update { it.copy(autoUnlockEnabled = enabled, autoUnlockMinuteOfDay = minuteOfDay) }
+        return true
+    }
+
+    fun setTimedSchedule(days: Set<Int>, minutes: Int): Boolean {
+        if (_state.value.blocking) return false
+        update { it.copy(timedDays = days, timedMinutes = minutes) }
         return true
     }
 

@@ -18,11 +18,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -32,6 +35,7 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Lock
@@ -58,6 +62,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
@@ -66,6 +71,7 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.text.DateFormatSymbols
 import java.util.Calendar
 
 private const val HELP_TEXT = """Ways out of a block, easiest first:
@@ -232,6 +238,7 @@ class MainActivity : ComponentActivity() {
                 item { StatusCard(state, onLockNow = { confirmLockNow = true }) }
                 item { SetupCard(state) }
                 item { AutoUnlockCard(state) }
+                item { TimedDaysCard(state) }
 
                 item {
                     Column(Modifier.padding(horizontal = 16.dp)) {
@@ -318,7 +325,14 @@ class MainActivity : ComponentActivity() {
             AlertDialog(
                 onDismissRequest = { confirmLockNow = false },
                 title = { Text("Lock now?") },
-                text = { Text("This blocks ${state.blockedPackages.size} apps right away, without your tag.$until") },
+                text = {
+                    val what = if (BlockController.currentMode(state) == BlockController.Mode.TIMED) {
+                        "Today is a timed day: ${state.blockedPackages.size} apps will open for ${state.timedMinutes} min at a time"
+                    } else {
+                        "This blocks ${state.blockedPackages.size} apps"
+                    }
+                    Text("$what, starting now, without your tag.$until")
+                },
                 confirmButton = {
                     TextButton(onClick = {
                         confirmLockNow = false
@@ -391,7 +405,8 @@ class MainActivity : ComponentActivity() {
                 }
                 Spacer(Modifier.height(4.dp))
                 val detail = when {
-                    state.blocking -> attemptsSummary(state) + "${state.blockedPackages.size} apps locked since " +
+                    state.blocking -> attemptsSummary(state) + modeSummary(state) +
+                        "${state.blockedPackages.size} apps locked since " +
                         DateUtils.getRelativeTimeSpanString(state.blockStartedAt) + ". " +
                         (if (state.autoUnlockAt != 0L) "Unlocks by itself at ${BlockController.formatUnlockTime(this@MainActivity, state.autoUnlockAt)}, or " else "") +
                         "tap your tag to unlock."
@@ -410,6 +425,13 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    private fun modeSummary(state: TappyStore.State): String =
+        if (BlockController.currentMode(state) == BlockController.Mode.TIMED) {
+            "Timed day: blocked apps open for ${state.timedMinutes} min at a time. "
+        } else {
+            ""
+        }
 
     private fun attemptsSummary(state: TappyStore.State): String {
         val total = state.attempts.values.sum()
@@ -516,6 +538,72 @@ class MainActivity : ComponentActivity() {
                     onCheckedChange = { TappyStore.setAutoUnlock(it, minute) },
                     enabled = !state.blocking,
                 )
+            }
+        }
+    }
+
+    /** Which weekdays lock fully and which give timed access. Frozen while blocking. */
+    @Composable
+    private fun TimedDaysCard(state: TappyStore.State) {
+        val editable = !state.blocking
+        val first = Calendar.getInstance().firstDayOfWeek
+        val week = (0 until 7).map { (first - 1 + it) % 7 + 1 }
+        val names = DateFormatSymbols.getInstance().shortWeekdays
+        Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Lock strength by day", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (editable) {
+                        "Tap a day to switch it between full and timed. Highlighted days are timed: " +
+                            "blocked apps open for ${state.timedMinutes} min at a time, then you're sent home."
+                    } else {
+                        "Can't be changed while blocking."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    week.forEach { day ->
+                        val timed = day in state.timedDays
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .aspectRatio(1f)
+                                .clip(CircleShape)
+                                .background(
+                                    if (timed) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.surfaceVariant
+                                )
+                                .clickable(enabled = editable) {
+                                    TappyStore.setTimedSchedule(
+                                        if (timed) state.timedDays - day else state.timedDays + day,
+                                        state.timedMinutes,
+                                    )
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                names[day].take(2),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (timed) MaterialTheme.colorScheme.onPrimary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Time per opening: ${state.timedMinutes} min", Modifier.weight(1f))
+                    TextButton(
+                        onClick = { TappyStore.setTimedSchedule(state.timedDays, state.timedMinutes - 1) },
+                        enabled = editable && state.timedMinutes > 1,
+                    ) { Text("−") }
+                    TextButton(
+                        onClick = { TappyStore.setTimedSchedule(state.timedDays, state.timedMinutes + 1) },
+                        enabled = editable && state.timedMinutes < 60,
+                    ) { Text("+") }
+                }
             }
         }
     }
