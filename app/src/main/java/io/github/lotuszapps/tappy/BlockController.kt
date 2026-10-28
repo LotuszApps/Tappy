@@ -124,6 +124,17 @@ object BlockController {
         return released
     }
 
+    /**
+     * Adds an app to the blocked list. Allowed during a block (stricter only); it takes effect
+     * straight away, including device-owner suspension.
+     */
+    fun addBlockedApp(context: Context, pkg: String): Boolean {
+        if (pkg in ProtectedApps.packages(context)) return false
+        TappyStore.addBlockedPackage(pkg)
+        if (TappyStore.state.value.blocking) applyOwnerPolicies(context, blocking = true)
+        return true
+    }
+
     /** A block only starts if it can actually be enforced and Tappy can't simply be uninstalled. */
     fun isProtectionReady(context: Context): Boolean =
         isAdminActive(context) && (BlockerService.isEnabled(context) || isDeviceOwner(context))

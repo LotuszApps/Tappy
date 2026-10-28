@@ -21,6 +21,8 @@ object TappyStore {
         val timedDays: Set<Int> = emptySet(),
         /** On timed days, how long each opening of a blocked app may last. */
         val timedMinutes: Int = DEFAULT_TIMED_MINUTES,
+        /** Apps installed during a lock: true = block them straight away, false = ask with a notification. */
+        val autoBlockNewApps: Boolean = false,
         /** When the current block started, by wall clock, uptime clock and boot number. */
         val blockStartedAt: Long = 0L,
         val blockStartedElapsed: Long = 0L,
@@ -48,6 +50,7 @@ object TappyStore {
     private const val KEY_ATTEMPTS = "attempts"
     private const val KEY_TIMED_DAYS = "timed_days"
     private const val KEY_TIMED_MINUTES = "timed_minutes"
+    private const val KEY_AUTO_BLOCK_NEW = "auto_block_new_apps"
 
     private lateinit var prefs: SharedPreferences
     private val _state = MutableStateFlow(State())
@@ -65,6 +68,7 @@ object TappyStore {
             autoUnlockMinuteOfDay = prefs.getInt(KEY_AUTO_MINUTE, DEFAULT_AUTO_UNLOCK_MINUTE),
             timedDays = prefs.getStringSet(KEY_TIMED_DAYS, emptySet())!!.mapNotNull { it.toIntOrNull() }.toSet(),
             timedMinutes = prefs.getInt(KEY_TIMED_MINUTES, DEFAULT_TIMED_MINUTES),
+            autoBlockNewApps = prefs.getBoolean(KEY_AUTO_BLOCK_NEW, false),
             blockStartedAt = prefs.getLong(KEY_STARTED, 0L),
             blockStartedElapsed = prefs.getLong(KEY_STARTED_ELAPSED, 0L),
             blockStartedBootCount = prefs.getInt(KEY_STARTED_BOOT, -1),
@@ -89,6 +93,7 @@ object TappyStore {
             .putInt(KEY_AUTO_MINUTE, next.autoUnlockMinuteOfDay)
             .putStringSet(KEY_TIMED_DAYS, next.timedDays.map { it.toString() }.toSet())
             .putInt(KEY_TIMED_MINUTES, next.timedMinutes)
+            .putBoolean(KEY_AUTO_BLOCK_NEW, next.autoBlockNewApps)
             .putLong(KEY_STARTED, next.blockStartedAt)
             .putLong(KEY_STARTED_ELAPSED, next.blockStartedElapsed)
             .putInt(KEY_STARTED_BOOT, next.blockStartedBootCount)
@@ -114,6 +119,15 @@ object TappyStore {
     fun setAutoUnlock(enabled: Boolean, minuteOfDay: Int): Boolean {
         if (_state.value.blocking) return false
         update { it.copy(autoUnlockEnabled = enabled, autoUnlockMinuteOfDay = minuteOfDay) }
+        return true
+    }
+
+    /** Adding is always allowed, even mid-block: it only makes the lock stricter. */
+    fun addBlockedPackage(pkg: String) = update { it.copy(blockedPackages = it.blockedPackages + pkg) }
+
+    fun setAutoBlockNewApps(enabled: Boolean): Boolean {
+        if (_state.value.blocking) return false
+        update { it.copy(autoBlockNewApps = enabled) }
         return true
     }
 

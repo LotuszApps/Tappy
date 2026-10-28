@@ -1,6 +1,7 @@
 package io.github.lotuszapps.tappy
 
 import android.accessibilityservice.AccessibilityService
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -25,6 +26,7 @@ class BlockerService : AccessibilityService() {
     private lateinit var appLabel: String
     private lateinit var overlay: BlockOverlay
     private val handler = Handler(Looper.getMainLooper())
+    private var installWatcher: BroadcastReceiver? = null
 
     /** Package in front, as of the latest event. */
     private var foregroundPkg: String? = null
@@ -40,6 +42,7 @@ class BlockerService : AccessibilityService() {
         super.onServiceConnected()
         appLabel = getString(R.string.app_name)
         overlay = BlockOverlay(this)
+        if (installWatcher == null) installWatcher = NewApps.watch(this)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
@@ -220,6 +223,8 @@ class BlockerService : AccessibilityService() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         if (::overlay.isInitialized) overlay.hide()
+        installWatcher?.let { unregisterReceiver(it) }
+        installWatcher = null
         super.onDestroy()
     }
 

@@ -55,7 +55,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,13 +62,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.DateFormatSymbols
 import java.util.Calendar
@@ -115,6 +120,7 @@ class MainActivity : ComponentActivity() {
     private var setup by mutableStateOf(Setup())
     private var pairing by mutableStateOf(false)
     private var showAccessibilityDisclosure by mutableStateOf(false)
+    private var apps by mutableStateOf<List<AppEntry>?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -134,6 +140,8 @@ class MainActivity : ComponentActivity() {
             toast(BlockController.describe(this, BlockController.TagResult.AUTO_RELEASED))
         }
         refreshSetup()
+        // Reload every time, so apps installed meanwhile (even during a block) show up.
+        lifecycleScope.launch { apps = withContext(Dispatchers.IO) { loadApps() } }
         // While Tappy is open, read tags here directly (pairing or toggling) instead of via NfcTagActivity.
         nfcAdapter?.enableReaderMode(
             this,
@@ -223,12 +231,10 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun Screen() {
         val state by TappyStore.state.collectAsStateWithLifecycle()
-        var apps by remember { mutableStateOf<List<AppEntry>?>(null) }
         var query by remember { mutableStateOf("") }
         var confirmEmergency by remember { mutableStateOf(false) }
         var confirmLockNow by remember { mutableStateOf(false) }
-
-        LaunchedEffect(Unit) { apps = withContext(Dispatchers.IO) { loadApps() } }
+        var confirmAdd by remember { mutableStateOf<AppEntry?>(null) }
 
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             LazyColumn(
@@ -248,10 +254,33 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.padding(top = 8.dp),
                         )
                         Text(
-                            if (state.blocking) "Locked while blocking." else "Phone, Clock, Settings and your home screen can't be blocked.",
+                            if (state.blocking) {
+                                "While blocking you can add apps, but not remove them."
+                            } else {
+                                "Phone, Clock, Settings and your home screen can't be blocked."
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Block new installs automatically", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    if (state.autoBlockNewApps) {
+                                        "Apps installed during a lock are blocked straight away."
+                                    } else {
+                                        "Off: apps installed during a lock get a notification asking to add them."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(
+                                checked = state.autoBlockNewApps,
+                                onCheckedChange = { TappyStore.setAutoBlockNewApps(it) },
+                                enabled = !state.blocking,
+                            )
+                        }
                         OutlinedTextField(
                             value = query,
                             onValueChange = { query = it },
@@ -269,14 +298,17 @@ class MainActivity : ComponentActivity() {
                     val shown = list.filter { query.isBlank() || it.label.contains(query, ignoreCase = true) }
                     items(shown, key = { it.packageName }) { app ->
                         val checked = app.packageName in state.blockedPackages
+                        // While blocking, only unticked apps can be ticked (stricter only), after a confirmation.
+                        val editable = !state.blocking || !checked
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .clickable(enabled = !state.blocking) {
-                                    TappyStore.setBlockedPackages(
-                                        if (checked) state.blockedPackages - app.packageName
-                                        else state.blockedPackages + app.packageName
-                                    )
+                                .clickable(enabled = editable) {
+                                    when {
+                                        state.blocking -> confirmAdd = app
+                                        checked -> TappyStore.setBlockedPackages(state.blockedPackages - app.packageName)
+                                        else -> TappyStore.setBlockedPackages(state.blockedPackages + app.packageName)
+                                    }
                                 }
                                 .padding(horizontal = 16.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -284,7 +316,7 @@ class MainActivity : ComponentActivity() {
                             Image(app.icon, null, Modifier.size(36.dp))
                             Spacer(Modifier.width(12.dp))
                             Text(app.label, Modifier.weight(1f))
-                            Checkbox(checked = checked, onCheckedChange = null, enabled = !state.blocking)
+                            Checkbox(checked = checked, onCheckedChange = null, enabled = editable)
                         }
                     }
                 }
@@ -310,6 +342,21 @@ class MainActivity : ComponentActivity() {
                 item { HelpCard() }
                 item { Spacer(Modifier.height(24.dp)) }
             }
+        }
+
+        confirmAdd?.let { app ->
+            AlertDialog(
+                onDismissRequest = { confirmAdd = null },
+                title = { Text("Block ${app.label}?") },
+                text = { Text("${app.label} is blocked straight away and stays blocked until you tap your tag. You can only remove it from the list after unlocking.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmAdd = null
+                        BlockController.addBlockedApp(this, app.packageName)
+                    }) { Text("Block it") }
+                },
+                dismissButton = { TextButton(onClick = { confirmAdd = null }) { Text("Cancel") } },
+            )
         }
 
         if (confirmLockNow) {
@@ -551,14 +598,10 @@ class MainActivity : ComponentActivity() {
         val names = DateFormatSymbols.getInstance().shortWeekdays
         Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
             Column(Modifier.padding(16.dp)) {
-                Text("Lock strength by day", style = MaterialTheme.typography.titleMedium)
+                Text("Full or timed lock, per day", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    if (editable) {
-                        "Tap a day to switch it between full and timed. Highlighted days are timed: " +
-                            "blocked apps open for ${state.timedMinutes} min at a time, then you're sent home."
-                    } else {
-                        "Can't be changed while blocking."
-                    },
+                    "Decides how strict a lock is on each day of the week." +
+                        if (editable) " Tap a day to switch it." else " Can't be changed while blocking.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -592,9 +635,21 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+                Spacer(Modifier.height(12.dp))
+                LegendRow(
+                    MaterialTheme.colorScheme.surfaceVariant,
+                    "Full",
+                    "Blocked apps can't be opened at all.",
+                )
+                Spacer(Modifier.height(6.dp))
+                LegendRow(
+                    MaterialTheme.colorScheme.primary,
+                    "Timed",
+                    "Blocked apps ask \"Open for ${state.timedMinutes} min?\" and send you home when the time is up.",
+                )
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Time per opening: ${state.timedMinutes} min", Modifier.weight(1f))
+                    Text("Minutes per opening on timed days: ${state.timedMinutes}", Modifier.weight(1f))
                     TextButton(
                         onClick = { TappyStore.setTimedSchedule(state.timedDays, state.timedMinutes - 1) },
                         enabled = editable && state.timedMinutes > 1,
@@ -605,6 +660,21 @@ class MainActivity : ComponentActivity() {
                     ) { Text("+") }
                 }
             }
+        }
+    }
+
+    @Composable
+    private fun LegendRow(color: Color, name: String, meaning: String) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(14.dp).clip(CircleShape).background(color))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                buildAnnotatedString {
+                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append("$name: ") }
+                    append(meaning)
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 

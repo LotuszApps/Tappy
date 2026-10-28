@@ -86,6 +86,10 @@
         </service>
 
         <receiver
+            android:name=".NewApps$AddBlockedAppReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".AutoUnlockReceiver"
             android:exported="false">
             <intent-filter>
