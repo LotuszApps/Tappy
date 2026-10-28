@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Padlock body -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,50h32a4,4 0,0 1,4 4v20a4,4 0,0 1,-4 4h-32a4,4 0,0 1,-4 -4v-20a4,4 0,0 1,4 -4z" />
+    <!-- Shackle -->
+    <path
+        android:pathData="M43,50v-7a11,11 0,0 1,22 0v7"
+        android:strokeWidth="5"
+        android:strokeColor="#FFFFFF" />
+    <!-- NFC waves -->
+    <path
+        android:pathData="M50,58a6,6 0,0 1,0 12"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:strokeColor="#1F1B2E" />
+    <path
+        android:pathData="M56,55a11,11 0,0 1,0 18"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:strokeColor="#1F1B2E" />
+</vector>

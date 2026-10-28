@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Tappy</string>
+    <string name="accessibility_description">Tappy watches which app is in front so it can lock the apps you picked while a block is active, and stops Tappy itself from being removed until you tap your tag again. It does not read or store anything you type or see.</string>
+    <string name="admin_description">Prevents Tappy from being uninstalled while a block is active.</string>
+    <string name="admin_disable_warning">Tappy is blocking apps. Tap your Tappy tag to end the block before removing this protection.</string>
+</resources>

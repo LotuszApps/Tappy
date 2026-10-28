@@ -1,0 +1,734 @@
+package io.github.lotuszapps.tappy
+
+import android.Manifest
+import android.app.TimePickerDialog
+import android.app.admin.DevicePolicyManager
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.nfc.NfcAdapter
+import android.nfc.Tag
+import android.os.Build
+import android.os.Bundle
+import android.provider.Settings
+import android.text.format.DateFormat
+import android.text.format.DateUtils
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.dp
+import androidx.core.graphics.drawable.toBitmap
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.text.DateFormatSymbols
+import java.util.Calendar
+
+private const val HELP_TEXT = """Ways out of a block, easiest first:
+
+1. Tap your tag. If tapping from another app doesn't work, open Tappy and tap the tag here.
+
+2. Wait for the auto-unlock time (if it's on). The block ends the first time you use the phone after that time.
+
+3. Emergency unlock (3 in total, they never come back), at the bottom of this screen while blocking.
+
+4. Safe mode (normal mode only): hold power, long-press "Power off", choose safe mode. Tappy's blocker is off there, so you can deactivate its device admin (Settings → Security → Device admin apps) and uninstall it.
+
+5. From a computer with USB debugging on (turn it on now, before you need it):
+   adb shell settings put secure enabled_accessibility_services ""
+   This turns the blocker off; then deactivate the device admin and uninstall.
+
+In device-owner mode, safe mode is disabled and Tappy can't be uninstalled, so only 1–3 work. The last resort is a factory reset from recovery mode, which wipes the phone."""
+
+private const val ACCESSIBILITY_DISCLOSURE = """Tappy uses Android's accessibility service to block apps. With it, Tappy:
+
+• sees which app is on screen, so it can close the apps you chose while a block is running;
+• checks whether Settings or the app installer is showing Tappy, so Tappy can't be switched off or uninstalled mid-block.
+
+Tappy does not read, store or share what you type or what's on screen. It has no internet access, so nothing leaves your phone.
+
+On the next screen, find Tappy and turn it on."""
+
+class MainActivity : ComponentActivity() {
+
+    private data class AppEntry(val packageName: String, val label: String, val icon: ImageBitmap)
+
+    private data class Setup(
+        val nfcAvailable: Boolean = true,
+        val nfcEnabled: Boolean = false,
+        val accessibility: Boolean = false,
+        val admin: Boolean = false,
+        val owner: Boolean = false,
+    )
+
+    private var nfcAdapter: NfcAdapter? = null
+    private var setup by mutableStateOf(Setup())
+    private var pairing by mutableStateOf(false)
+    private var showAccessibilityDisclosure by mutableStateOf(false)
+    private var apps by mutableStateOf<List<AppEntry>?>(null)
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        nfcAdapter = NfcAdapter.getDefaultAdapter(this)
+        // For the blocked-attempt notifications; Android stops asking after the user declines twice.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+                .launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        setContent { TappyTheme { Screen() } }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (BlockController.checkAutoUnlock(this)) {
+            toast(BlockController.describe(this, BlockController.TagResult.AUTO_RELEASED))
+        }
+        refreshSetup()
+        // Reload every time, so apps installed meanwhile (even during a block) show up.
+        lifecycleScope.launch { apps = withContext(Dispatchers.IO) { loadApps() } }
+        // While Tappy is open, read tags here directly (pairing or toggling) instead of via NfcTagActivity.
+        nfcAdapter?.enableReaderMode(
+            this,
+            ::onTag,
+            NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_NFC_B or
+                NfcAdapter.FLAG_READER_NFC_F or NfcAdapter.FLAG_READER_NFC_V,
+            null,
+        )
+    }
+
+    override fun onPause() {
+        super.onPause()
+        nfcAdapter?.disableReaderMode(this)
+        pairing = false
+    }
+
+    private fun refreshSetup() {
+        setup = Setup(
+            nfcAvailable = nfcAdapter != null,
+            nfcEnabled = nfcAdapter?.isEnabled == true,
+            accessibility = BlockerService.isEnabled(this),
+            admin = BlockController.isAdminActive(this),
+            owner = BlockController.isDeviceOwner(this),
+        )
+    }
+
+    /** Called on a binder thread by reader mode. */
+    private fun onTag(tag: Tag) {
+        val id = TagUtils.idOf(tag)
+        if (pairing) {
+            if (!TagUtils.isPairable(tag)) {
+                // Keep the dialog open so the right tag can be tapped next; nothing was written.
+                runOnUiThread { toast("That's a card, not a tag. Use an NFC sticker or keyfob (NTAG213/215/216).") }
+                return
+            }
+            val wrote = TagUtils.writeLaunchRecord(tag, packageName)
+            runOnUiThread {
+                pairing = false
+                if (TappyStore.setPairedTag(id)) {
+                    toast(if (wrote) "Tag paired." else "Tag paired (read-only tag: it works, but Android may ask which app to open).")
+                } else {
+                    toast("Can't change the tag while blocking.")
+                }
+            }
+        } else {
+            val result = BlockController.onTagScanned(this, id)
+            runOnUiThread { toast(BlockController.describe(this, result)) }
+        }
+    }
+
+    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+
+    private fun openAccessibilitySettings() =
+        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+
+    private fun requestAdmin() = startActivity(
+        Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
+            .putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, TappyAdminReceiver.component(this))
+            .putExtra(
+                DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                "Lets Tappy stop itself from being uninstalled while a block is active.",
+            )
+    )
+
+    private fun loadApps(): List<AppEntry> {
+        val pm = packageManager
+        val protected = ProtectedApps.packages(this)
+        // Drop protected apps picked before they were excluded (only possible while not blocking).
+        TappyStore.state.value.blockedPackages.let { selected ->
+            if (selected.any { it in protected }) TappyStore.setBlockedPackages(selected - protected)
+        }
+        val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        return pm.queryIntentActivities(launcher, PackageManager.MATCH_ALL)
+            .map { it.activityInfo.applicationInfo }
+            .distinctBy { it.packageName }
+            .filter { it.packageName !in protected }
+            .map { info ->
+                AppEntry(
+                    packageName = info.packageName,
+                    label = pm.getApplicationLabel(info).toString(),
+                    icon = pm.getApplicationIcon(info).toBitmap(96, 96).asImageBitmap(),
+                )
+            }
+            .sortedBy { it.label.lowercase() }
+    }
+
+    @Composable
+    private fun Screen() {
+        val state by TappyStore.state.collectAsStateWithLifecycle()
+        var query by remember { mutableStateOf("") }
+        var confirmEmergency by remember { mutableStateOf(false) }
+        var confirmLockNow by remember { mutableStateOf(false) }
+        var confirmAdd by remember { mutableStateOf<AppEntry?>(null) }
+
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            LazyColumn(
+                Modifier.fillMaxSize().systemBarsPadding(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item { StatusCard(state, onLockNow = { confirmLockNow = true }) }
+                item { SetupCard(state) }
+                item { AutoUnlockCard(state) }
+                item { TimedDaysCard(state) }
+
+                item {
+                    Column(Modifier.padding(horizontal = 16.dp)) {
+                        Text(
+                            "Apps to block (${state.blockedPackages.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                        Text(
+                            if (state.blocking) {
+                                "While blocking you can add apps, but not remove them."
+                            } else {
+                                "Phone, Clock, Settings and your home screen can't be blocked."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Block new installs automatically", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    if (state.autoBlockNewApps) {
+                                        "Apps installed during a lock are blocked straight away."
+                                    } else {
+                                        "Off: apps installed during a lock get a notification asking to add them."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(
+                                checked = state.autoBlockNewApps,
+                                onCheckedChange = { TappyStore.setAutoBlockNewApps(it) },
+                                enabled = !state.blocking,
+                            )
+                        }
+                        OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            label = { Text("Search apps") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        )
+                    }
+                }
+
+                val list = apps
+                if (list == null) {
+                    item { Text("Loading apps…", Modifier.padding(16.dp)) }
+                } else {
+                    val shown = list.filter { query.isBlank() || it.label.contains(query, ignoreCase = true) }
+                    items(shown, key = { it.packageName }) { app ->
+                        val checked = app.packageName in state.blockedPackages
+                        // While blocking, only unticked apps can be ticked (stricter only), after a confirmation.
+                        val editable = !state.blocking || !checked
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = editable) {
+                                    when {
+                                        state.blocking -> confirmAdd = app
+                                        checked -> TappyStore.setBlockedPackages(state.blockedPackages - app.packageName)
+                                        else -> TappyStore.setBlockedPackages(state.blockedPackages + app.packageName)
+                                    }
+                                }
+                                .padding(horizontal = 16.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Image(app.icon, null, Modifier.size(36.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text(app.label, Modifier.weight(1f))
+                            Checkbox(checked = checked, onCheckedChange = null, enabled = editable)
+                        }
+                    }
+                }
+
+                if (state.blocking) {
+                    item {
+                        Column(Modifier.padding(16.dp)) {
+                            HorizontalDivider()
+                            Spacer(Modifier.height(12.dp))
+                            Text("Lost your tag?", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "Emergency unlocks left: ${state.emergencyUnlocksLeft} of ${TappyStore.EMERGENCY_UNLOCKS}. These never come back.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            OutlinedButton(
+                                onClick = { confirmEmergency = true },
+                                enabled = state.emergencyUnlocksLeft > 0,
+                                modifier = Modifier.padding(top = 8.dp),
+                            ) { Text("Emergency unlock") }
+                        }
+                    }
+                }
+                item { HelpCard() }
+                item { Spacer(Modifier.height(24.dp)) }
+            }
+        }
+
+        confirmAdd?.let { app ->
+            AlertDialog(
+                onDismissRequest = { confirmAdd = null },
+                title = { Text("Block ${app.label}?") },
+                text = { Text("${app.label} is blocked straight away and stays blocked until you tap your tag. You can only remove it from the list after unlocking.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmAdd = null
+                        BlockController.addBlockedApp(this, app.packageName)
+                    }) { Text("Block it") }
+                },
+                dismissButton = { TextButton(onClick = { confirmAdd = null }) { Text("Cancel") } },
+            )
+        }
+
+        if (confirmLockNow) {
+            val until = if (state.autoUnlockEnabled) {
+                " It ends when you tap your tag, or by itself at " +
+                    BlockController.formatUnlockTime(
+                        this,
+                        AutoUnlock.nextOccurrence(System.currentTimeMillis(), state.autoUnlockMinuteOfDay),
+                    ) + "."
+            } else {
+                " Only your tag (or an emergency unlock) can end it."
+            }
+            AlertDialog(
+                onDismissRequest = { confirmLockNow = false },
+                title = { Text("Lock now?") },
+                text = {
+                    val what = if (BlockController.currentMode(state) == BlockController.Mode.TIMED) {
+                        "Today is a timed day: ${state.blockedPackages.size} apps will open for ${state.timedMinutes} min at a time"
+                    } else {
+                        "This blocks ${state.blockedPackages.size} apps"
+                    }
+                    Text("$what, starting now, without your tag.$until")
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmLockNow = false
+                        toast(BlockController.describe(this, BlockController.lockNow(this)))
+                    }) { Text("Lock") }
+                },
+                dismissButton = { TextButton(onClick = { confirmLockNow = false }) { Text("Cancel") } },
+            )
+        }
+
+        if (confirmEmergency) {
+            AlertDialog(
+                onDismissRequest = { confirmEmergency = false },
+                title = { Text("Use an emergency unlock?") },
+                text = { Text("This ends the block without your tag. You have ${state.emergencyUnlocksLeft} left, and they can't be recharged.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmEmergency = false
+                        if (BlockController.emergencyRelease(this@MainActivity)) toast("Unlocked.")
+                    }) { Text("Unlock") }
+                },
+                dismissButton = { TextButton(onClick = { confirmEmergency = false }) { Text("Cancel") } },
+            )
+        }
+
+        if (showAccessibilityDisclosure) {
+            // Prominent disclosure: explain exactly what the service sees before the user turns it on.
+            AlertDialog(
+                onDismissRequest = { showAccessibilityDisclosure = false },
+                title = { Text("Before you turn this on") },
+                text = { Text(ACCESSIBILITY_DISCLOSURE) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showAccessibilityDisclosure = false
+                        openAccessibilitySettings()
+                    }) { Text("Agree & continue") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAccessibilityDisclosure = false }) { Text("Not now") }
+                },
+            )
+        }
+
+        if (pairing) {
+            AlertDialog(
+                onDismissRequest = { pairing = false },
+                title = { Text("Pair a tag") },
+                text = { Text("Hold an NFC tag against the back of your phone.") },
+                confirmButton = { TextButton(onClick = { pairing = false }) { Text("Cancel") } },
+            )
+        }
+    }
+
+    @Composable
+    private fun StatusCard(state: TappyStore.State, onLockNow: () -> Unit) {
+        val colors = if (state.blocking) {
+            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+        } else {
+            CardDefaults.cardColors()
+        }
+        Card(Modifier.fillMaxWidth().padding(16.dp), colors = colors) {
+            Column(Modifier.padding(20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (state.blocking) Icon(Icons.Filled.Lock, null, Modifier.padding(end = 8.dp))
+                    Text(
+                        if (state.blocking) "Blocking" else "Not blocking",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+                val detail = when {
+                    state.blocking -> attemptsSummary(state) + modeSummary(state) +
+                        "${state.blockedPackages.size} apps locked since " +
+                        DateUtils.getRelativeTimeSpanString(state.blockStartedAt) + ". " +
+                        (if (state.autoUnlockAt != 0L) "Unlocks by itself at ${BlockController.formatUnlockTime(this@MainActivity, state.autoUnlockAt)}, or " else "") +
+                        "tap your tag to unlock."
+                    state.pairedTagId == null -> "Pair a tag below to get started."
+                    else -> "Tap your tag to block ${state.blockedPackages.size} apps."
+                }
+                Text(detail, style = MaterialTheme.typography.bodyMedium)
+                // Forgot to tap before leaving? Lock from here; unlocking still needs the tag.
+                if (!state.blocking && state.pairedTagId != null) {
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = onLockNow, enabled = state.blockedPackages.isNotEmpty()) {
+                        Icon(Icons.Filled.Lock, null, Modifier.padding(end = 8.dp))
+                        Text("Lock now")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun modeSummary(state: TappyStore.State): String =
+        if (BlockController.currentMode(state) == BlockController.Mode.TIMED) {
+            "Timed day: blocked apps open for ${state.timedMinutes} min at a time. "
+        } else {
+            ""
+        }
+
+    private fun attemptsSummary(state: TappyStore.State): String {
+        val total = state.attempts.values.sum()
+        return if (total == 0) "" else "$total blocked ${if (total == 1) "attempt" else "attempts"} so far. "
+    }
+
+    @Composable
+    private fun SetupCard(state: TappyStore.State) {
+        val s = setup
+        Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Column(Modifier.padding(vertical = 8.dp)) {
+                Text("Setup", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(16.dp, 8.dp))
+
+                SetupRow(
+                    ok = s.nfcEnabled,
+                    title = if (s.nfcAvailable) "NFC is on" else "This phone has no NFC",
+                    action = if (s.nfcAvailable && !s.nfcEnabled) "Turn on" else null,
+                ) { startActivity(Intent(Settings.ACTION_NFC_SETTINGS)) }
+
+                SetupRow(
+                    ok = state.pairedTagId != null,
+                    title = if (state.pairedTagId != null) "Tag paired" else "No tag paired",
+                    subtitle = state.pairedTagId?.let { "ID $it" },
+                    action = when {
+                        state.blocking -> null
+                        state.pairedTagId == null -> "Pair"
+                        else -> "Re-pair"
+                    },
+                ) { pairing = true }
+
+                SetupRow(
+                    ok = s.accessibility,
+                    title = "App blocker service",
+                    subtitle = if (s.accessibility) null else
+                        "Turn on Tappy under Accessibility. If it's greyed out: App info → ⋮ → Allow restricted settings.",
+                    action = if (s.accessibility) null else "Open",
+                ) { showAccessibilityDisclosure = true }
+
+                SetupRow(
+                    ok = s.admin,
+                    title = "Uninstall protection",
+                    subtitle = when {
+                        s.owner -> "Device owner: uninstall is hard-blocked and apps are suspended during a block."
+                        s.admin -> "Tappy can't be uninstalled while blocking."
+                        else -> "Required to stop Tappy being uninstalled during a block."
+                    },
+                    action = when {
+                        !s.admin -> "Enable"
+                        state.blocking -> null
+                        s.owner -> "Remove owner"
+                        else -> "Disable"
+                    },
+                ) {
+                    when {
+                        !s.admin -> requestAdmin()
+                        s.owner -> BlockController.clearDeviceOwner(this@MainActivity)
+                        else -> BlockController.deactivateAdmin(this@MainActivity)
+                    }
+                    refreshSetup()
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun AutoUnlockCard(state: TappyStore.State) {
+        val minute = state.autoUnlockMinuteOfDay
+        val timeText = DateFormat.getTimeFormat(this).format(
+            Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, minute / 60)
+                set(Calendar.MINUTE, minute % 60)
+            }.time
+        )
+        Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Auto-unlock every day", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        when {
+                            state.blocking -> "Can't be changed while blocking."
+                            state.autoUnlockEnabled -> "Blocks end by themselves at $timeText."
+                            else -> "Off: only your tag (or an emergency unlock) ends a block."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (state.autoUnlockEnabled) {
+                        TextButton(
+                            onClick = {
+                                TimePickerDialog(
+                                    this@MainActivity,
+                                    { _, h, m -> TappyStore.setAutoUnlock(true, h * 60 + m) },
+                                    minute / 60,
+                                    minute % 60,
+                                    DateFormat.is24HourFormat(this@MainActivity),
+                                ).show()
+                            },
+                            enabled = !state.blocking,
+                        ) { Text("Unlock at $timeText") }
+                    }
+                }
+                Switch(
+                    checked = state.autoUnlockEnabled,
+                    onCheckedChange = { TappyStore.setAutoUnlock(it, minute) },
+                    enabled = !state.blocking,
+                )
+            }
+        }
+    }
+
+    /** Which weekdays lock fully and which give timed access. Frozen while blocking. */
+    @Composable
+    private fun TimedDaysCard(state: TappyStore.State) {
+        val editable = !state.blocking
+        val first = Calendar.getInstance().firstDayOfWeek
+        val week = (0 until 7).map { (first - 1 + it) % 7 + 1 }
+        val names = DateFormatSymbols.getInstance().shortWeekdays
+        Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Full or timed lock, per day", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Decides how strict a lock is on each day of the week." +
+                        if (editable) " Tap a day to switch it." else " Can't be changed while blocking.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    week.forEach { day ->
+                        val timed = day in state.timedDays
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .aspectRatio(1f)
+                                .clip(CircleShape)
+                                .background(
+                                    if (timed) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.surfaceVariant
+                                )
+                                .clickable(enabled = editable) {
+                                    TappyStore.setTimedSchedule(
+                                        if (timed) state.timedDays - day else state.timedDays + day,
+                                        state.timedMinutes,
+                                    )
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                names[day].take(2),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (timed) MaterialTheme.colorScheme.onPrimary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                LegendRow(
+                    MaterialTheme.colorScheme.surfaceVariant,
+                    "Full",
+                    "Blocked apps can't be opened at all.",
+                )
+                Spacer(Modifier.height(6.dp))
+                LegendRow(
+                    MaterialTheme.colorScheme.primary,
+                    "Timed",
+                    "Blocked apps ask \"Open for ${state.timedMinutes} min?\" and send you home when the time is up.",
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Minutes per opening on timed days", Modifier.weight(1f))
+                    // Compact stepper: − 5 +
+                    IconButton(
+                        onClick = { TappyStore.setTimedSchedule(state.timedDays, state.timedMinutes - 1) },
+                        enabled = editable && state.timedMinutes > 1,
+                    ) { Text("−", style = MaterialTheme.typography.titleLarge) }
+                    Text(
+                        "${state.timedMinutes}",
+                        Modifier.width(32.dp),
+                        style = MaterialTheme.typography.titleMedium,
+                        textAlign = TextAlign.Center,
+                    )
+                    IconButton(
+                        onClick = { TappyStore.setTimedSchedule(state.timedDays, state.timedMinutes + 1) },
+                        enabled = editable && state.timedMinutes < 60,
+                    ) { Text("+", style = MaterialTheme.typography.titleLarge) }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun LegendRow(color: Color, name: String, meaning: String) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(14.dp).clip(CircleShape).background(color))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                buildAnnotatedString {
+                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append("$name: ") }
+                    append(meaning)
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+
+    @Composable
+    private fun HelpCard() {
+        var expanded by remember { mutableStateOf(false) }
+        Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Column(Modifier.clickable { expanded = !expanded }.padding(16.dp)) {
+                Text(
+                    if (expanded) "If you get stuck" else "If you get stuck  ›",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                if (expanded) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(HELP_TEXT, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun SetupRow(
+        ok: Boolean,
+        title: String,
+        subtitle: String? = null,
+        action: String? = null,
+        onAction: () -> Unit = {},
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                if (ok) Icons.Filled.CheckCircle else Icons.Filled.Warning,
+                null,
+                tint = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge)
+                if (subtitle != null) {
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (action != null) TextButton(onClick = onAction) { Text(action) }
+        }
+    }
+}

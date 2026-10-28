@@ -1,0 +1,1 @@
+Lock distracting apps with a tap of an NFC tag. Tap again to get them back.

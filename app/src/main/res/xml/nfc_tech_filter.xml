@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fallback for paired tags whose NDEF record is missing or unreadable: match them by UID instead.
+     Only sticker/keyfob tags (NTAG21x, MIFARE Ultralight) can be paired, so bank and travel cards
+     never wake Tappy. -->
+<resources>
+    <tech-list><tech>android.nfc.tech.MifareUltralight</tech></tech-list>
+</resources>
