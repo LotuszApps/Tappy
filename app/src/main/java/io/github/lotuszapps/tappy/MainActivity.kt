@@ -47,6 +47,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -68,6 +69,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
@@ -649,15 +651,22 @@ class MainActivity : ComponentActivity() {
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Minutes per opening on timed days: ${state.timedMinutes}", Modifier.weight(1f))
-                    TextButton(
+                    Text("Minutes per opening on timed days", Modifier.weight(1f))
+                    // Compact stepper: − 5 +
+                    IconButton(
                         onClick = { TappyStore.setTimedSchedule(state.timedDays, state.timedMinutes - 1) },
                         enabled = editable && state.timedMinutes > 1,
-                    ) { Text("−") }
-                    TextButton(
+                    ) { Text("−", style = MaterialTheme.typography.titleLarge) }
+                    Text(
+                        "${state.timedMinutes}",
+                        Modifier.width(32.dp),
+                        style = MaterialTheme.typography.titleMedium,
+                        textAlign = TextAlign.Center,
+                    )
+                    IconButton(
                         onClick = { TappyStore.setTimedSchedule(state.timedDays, state.timedMinutes + 1) },
                         enabled = editable && state.timedMinutes < 60,
-                    ) { Text("+") }
+                    ) { Text("+", style = MaterialTheme.typography.titleLarge) }
                 }
             }
         }
